@@ -348,3 +348,298 @@ messages = [
 还有少量特殊消息子类：
 - `FunctionMessage`：旧版本函数调用遗留消息（已被ToolMessage淘汰）
 - `ChatMessage`：自定义任意role角色，用于多角色模拟等特殊场景。
+# 两段 @tool 装饰器写法的核心区别
+## 一、基础版：`@tool`（无参数）
+```python
+@tool
+def search_database(query: str, limit: int = 10) -> str:
+    """Search the customer database for records matching the query.
+
+    Args:
+        query: Search terms to look for
+        limit: Maximum number of results to return
+    """
+    return f"Found {limit} results for '{query}'"
+```
+### 规则
+1. **工具名称 = 函数名**：`search_database.name` → `search_database`
+2. 全部配置自动推导：
+   - 工具名字：直接拿函数名
+   - 工具功能描述：完整读取函数的 docstring（文档注释）
+   - 参数 JSON Schema：依靠函数**类型注解**自动生成
+3. 适合：函数名本身表意清晰，不需要改名的场景。
+
+## 二、自定义名称版：`@tool("web_search")`（传入字符串参数）
+```python
+@tool("web_search")  # 手动指定工具名称
+def search(query: str) -> str:
+    """Search the web for information."""
+    return f"Results for: {query}"
+
+print(search.name)  # 输出 web_search，不是函数名 search
+```
+### 规则
+1. **强制覆盖工具名称**：无视函数原名`search`，工具对外名称固定为`web_search`
+2. 其余逻辑不变：
+   - 工具描述依然取自函数docstring
+   - 参数结构依旧靠类型注解生成
+3. 使用场景：
+   - 函数名为了代码规范写的短名/内部命名（比如`func1`、`db_query`），但需要给大模型一个语义清晰的工具名；
+   - 多个函数需要统一对外工具名、适配第三方Agent框架工具名称约定；
+   - 避免函数重名冲突，对外暴露独立工具标识。
+
+## 三、核心区别对照表
+| 对比项 | `@tool` 无参写法 | `@tool("自定义名称")` 传参写法 |
+|--------|------------------|-------------------------------|
+| 工具Name取值 | 自动使用Python函数名 | 手动传入字符串，强制覆盖名字 |
+| 函数内部命名 | 函数名=工具名，内外统一 | 代码函数名 和 Agent识别的工具名分离 |
+| 工具描述 | 全部由docstring提供 | 依旧由docstring提供，不受名称修改影响 |
+| 参数Schema | 由函数类型注解生成 | 完全一致，不受名称修改影响 |
+| 适用场景 | 函数名语义明确，直接对外作为工具名 | 想要对外工具名和代码函数名解耦、重命名工具 |
+
+## 四、拓展：@tool完整参数（不止改名）
+`@tool`除了传字符串改名，还可以传字典自定义**名称+描述**，进一步定制：
+```python
+@tool({"name": "web_search", "description": "全网搜索引擎，用于联网查询实时资讯"})
+def search(query: str) -> str:
+    return f"Results for: {query}"
+```
+此时既改名字，又直接覆盖工具描述，不再依赖docstring做说明。
+
+## 五、实战选择建议
+1. 普通业务工具、函数名一看就懂 → 直接`@tool`最简写法；
+2. 函数名简写、内部代号、需要给模型一个易懂的工具标识 → `@tool("xxx名称")`自定义名字；
+3. 需要重度定制工具简介 → 使用字典参数一次性配置name+description。
+
+# LangChain 预定义联网工具 Tavily 完整使用教程
+## 一、Tavily 工具介绍
+Tavily是LangChain官方预置的**专业AI联网搜索工具**，专门给大模型Agent做实时互联网检索，对比普通谷歌/Bing搜索优势：
+1. 针对LLM做结果精简提炼，直接返回摘要文本，减少模型处理长网页压力；
+2. 支持深度搜索、限定时间范围、过滤域名、图片检索；
+3. 开箱即用，属于LangChain社区预定义工具，不需要自己用`@tool`手动封装搜索函数。
+核心类：`TavilySearchResults`（主搜索工具）、`TavilyExtract`（网页内容精读工具）。
+
+## 二、前置准备
+### 1. 安装依赖包
+```bash
+pip install -U langchain-tavily langchain-openai python-dotenv
+```
+
+### 2. 获取 Tavily API Key
+1. 打开官网：https://tavily.com/ 注册账号
+2. 在控制台复制 `TAVILY_API_KEY`，免费额度：每月1000次搜索调用，足够学习调试。
+
+### 3. 密钥配置（两种方式）
+#### 方式1：代码内直接设置（临时测试用，不推荐上线）
+```python
+import os
+# 配置Tavily搜索密钥
+os.environ["TAVILY_API_KEY"] = "tvly-xxxx你的密钥xxxx"
+# 同时配置大模型Key（OpenAI/DeepSeek等）
+os.environ["OPENAI_API_KEY"] = "xxx"
+```
+#### 方式2：.env环境文件（规范项目写法）
+新建`.env`文件写入：
+```env
+TAVILY_API_KEY=tvly-xxxx你的密钥xxxx
+OPENAI_API_KEY=xxx
+```
+代码加载：
+```python
+from dotenv import load_dotenv
+load_dotenv() # 自动读取.env变量
+```
+
+## 三、基础用法1：直接调用工具（单独搜索）
+直接实例化工具执行联网搜索，不接入Agent，纯工具调用测试
+```python
+from langchain_tavily import TavilySearchResults
+
+# 初始化搜索工具
+tavily_tool = TavilySearchResults(
+    max_results=3, # 返回搜索结果条数
+    search_depth="basic", # basic基础快速搜索 / advanced深度全网检索
+    include_images=False, # 是否返回图片
+    time_range="week" # 限定搜索时间：day/week/month/year
+)
+
+# 执行搜索
+result = tavily_tool.invoke({"query": "2026年杭州夏季高温天气情况"})
+# 打印搜索结果
+for item in result:
+    print(f"标题：{item['title']}")
+    print(f"摘要：{item['content']}")
+    print(f"来源链接：{item['url']}\n")
+```
+
+## 四、基础用法2：接入Agent智能体（核心场景，模型自主决定何时联网）
+把Tavily工具交给Agent，大模型判断「需要实时信息」时自动调用搜索工具，回答用户问题。
+### 完整Agent可运行代码
+```python
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain_tavily import TavilySearchResults
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.prompts import ChatPromptTemplate
+
+# 1. 加载环境变量
+load_dotenv()
+
+# 2. 初始化大模型
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+
+# 3. 初始化Tavily搜索工具
+tools = [
+    TavilySearchResults(max_results=2, search_depth="basic")
+]
+
+# 4. 构造Agent提示词
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是实时资讯助手，有时效性、外部知识问题必须使用联网搜索工具，不要凭空编造内容"),
+    ("user", "{input}"),
+    ("agent_scratchpad", "{agent_scratchpad}")
+])
+
+# 5. 创建工具调用Agent
+agent = create_openai_tools_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True) # verbose=True打印工具调用日志
+
+# 6. 对话测试
+response = agent_executor.invoke({
+    "input": "现在2026年8月，杭州最新的文旅活动有哪些？"
+})
+print("最终回答：", response["output"])
+```
+运行后控制台会打印：模型判断调用Tavily→发起联网搜索→拿到网页结果→总结回答用户。
+
+## 五、进阶：Tavily网页精读工具（TavilyExtract）
+搜索拿到链接后，用`TavilyExtract`抓取网页全文详细内容，适合深度资料整理：
+```python
+from langchain_tavily import TavilyExtract
+
+extract_tool = TavilyExtract(extract_depth="basic")
+# 传入网页链接，抓取正文内容
+content = extract_tool.invoke({
+    "urls": ["https://xxx新闻链接.com"]
+})
+print(content)
+```
+
+## 六、核心常用参数说明（初始化工具时配置）
+| 参数 | 作用 | 可选值 |
+|------|------|--------|
+| `max_results` | 返回搜索结果数量 | 整数，一般2~5 |
+| `search_depth` | 搜索深度 | `basic`（快、省额度）/`advanced`（深度检索，消耗更多额度） |
+| `time_range` | 时效过滤 | `day`/`week`/`month`/`year` |
+| `include_images` | 是否返回配图 | True/False |
+| `include_domains` | 只在指定网站搜索 | `["zhihu.com","gov.cn"]` |
+| `exclude_domains` | 屏蔽垃圾网站来源 | `["bilibili.com","ads.com"]` |
+
+## 七、和自定义@tool工具对比总结
+1. **Tavily预定义工具**
+   - 优点：零开发、开箱即用、接口稳定、自动适配Agent工具调用格式，专门做联网搜索；
+   - 适用：需要实时互联网信息、时事新闻、最新资料查询的Agent。
+2. **@tool自定义函数工具**
+   - 优点：完全自由定制逻辑（数据库查询、接口调用、计算函数、本地文件读取）；
+   - 适用：业务内部能力（查数据库、调用内部API、本地逻辑计算）。
+
+## 八、常见踩坑点
+1. **API Key未配置报错**：必须设置`TAVILY_API_KEY`环境变量，工具不会自动读取密钥；
+2. **额度耗尽**：免费版每月1000次调用，频繁调试容易用完，可在官网查看用量；
+3. **模型不调用搜索工具**：System提示词明确约束「时效性问题必须联网搜索，禁止幻觉编造」，强化工具使用意愿；
+4. **搜索结果太多冗余**：`max_results`控制在2~3条，避免上下文超长。
+# 整体讲解：Pydantic结构化输出实体（LangChain结构化返回核心用法）
+## 一、这一段代码是干嘛的？
+用 **Pydantic 的 BaseModel** 定义固定JSON结构，强制大模型**不能自由乱写自然语言**，必须按照你规定的字段格式输出结构化数据（类似固定格式JSON）。
+场景：联网Agent需要同时返回「回答正文+引用的网页标题+网页链接」，方便前端渲染参考文献、溯源、校验内容来源，杜绝模型乱编来源。
+
+### 两段模型拆解
+1. **Reference 子模型：单条网页引用实体**
+```python
+class Reference(BaseModel):
+    title: str = Field(description="The title of the web page cited in the answer")
+    url: str = Field(description="The url of the web page cited in the answer")
+```
+用来描述一条引用资料：网页标题、网页链接。
+
+2. **AnswerInfo 顶层模型：整体返回结构**
+```python
+class AnswerInfo(BaseModel):
+    answer: str = Field(description="The final answer for user")
+    reference: list[Reference] = Field(description="The web pages cited in the answer")
+```
+整体结构：
+- `answer`：给用户的最终文字回答
+- `reference`：数组，里面是多条`Reference`引用链接（可以0条、1条、多条搜索来源）
+
+## 二、关键字段说明
+1. `BaseModel`
+Pydantic核心基类，提供**数据校验、JSON序列化、自动生成JSON Schema**能力，LangChain可以读取这个Schema给模型下发格式约束。
+2. `Field(description="xxx")`
+给每个字段写英文说明，会被打包进格式提示词告诉大模型：这个字段该填什么内容。
+
+## 三、模型强制输出效果（最终拿到结构化JSON）
+模型不会输出一段自由文本，只会返回类似这样的结构化数据：
+```json
+{
+  "answer": "2026年杭州暑期有多场文旅夜市活动，集中在西湖、钱江新城板块",
+  "reference": [
+    {
+      "title": "2026杭州夏日文旅活动汇总",
+      "url": "https://xxx.news1.com"
+    },
+    {
+      "title": "杭州夜游消费季官方公告",
+      "url": "https://gov.hangzhou.cn/xxx"
+    }
+  ]
+}
+```
+
+## 四、在LangChain里怎么用（完整落地代码）
+搭配`with_structured_output`绑定模型，强制模型输出我们定义的`AnswerInfo`结构：
+```python
+from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+
+# 1. 定义结构化实体（截图里的代码）
+class Reference(BaseModel):
+    title: str = Field(description="The title of the web page cited in the answer")
+    url: str = Field(description="The url of the web page cited in the answer")
+
+class AnswerInfo(BaseModel):
+    answer: str = Field(description="The final answer for user")
+    reference: list[Reference] = Field(description="The web pages cited in the answer")
+
+# 2. 初始化模型，绑定结构化输出
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+structured_llm = llm.with_structured_output(AnswerInfo)
+
+# 3. 调用，直接拿到Pydantic对象，不用手动解析JSON
+result: AnswerInfo = structured_llm.invoke("介绍2026杭州夏季文旅活动，带上来源链接")
+
+# 直接读取字段
+print("回答正文：", result.answer)
+for ref in result.reference:
+    print(f"来源标题：{ref.title}，链接：{ref.url}")
+```
+
+## 五、核心使用价值
+1. **后端开发友好**
+不用正则、字符串分割去提取模型回答里的链接，直接对象点属性取值，对接前端、数据库非常方便。
+2. **约束模型行为，减少幻觉**
+强制模型必须标注引用来源，回答和来源一一对应，降低模型瞎编内容、编造链接的概率。
+3. **复杂业务结构化场景通用**
+不止是引用来源，还可以用来做：信息抽取（姓名/电话/地址抽取）、工单分类、参数提取、表单填充、意图识别。
+4. **搭配Tavily搜索工具完美适配**
+之前讲的Tavily联网搜索拿到网页title+url，直接塞进`reference`数组，实现「搜索→回答→来源溯源」完整链路。
+
+## 六、对比普通自由文本输出
+- 普通输出：一段长文字，链接混杂在文本里，机器很难解析；
+- 结构化Pydantic输出：强类型结构，程序可直接读取、校验、入库、展示参考文献。
+
+## 七、拓展小知识
+- 字段描述建议英文：OpenAI系列模型对英文字段描述识别更稳定，格式出错概率更低；
+- 可以加字段校验：比如`url: HttpUrl`强制校验链接合法性，模型输出错误格式会直接报错重试；
+- LangChain Agent也可以绑定结构化输出，让Agent最终返回固定格式结果。
