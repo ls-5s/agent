@@ -13,26 +13,46 @@ from agent import create_weather_agent
 
 
 def main():
-    # 获取配置好的天气助手 Agent
     agent = create_weather_agent()
+    print("智能天气助手已启动！（输入 quit 退出）\n")
 
-    # 发送用户问题，Agent 会自动判断是否需要调用 getWeather 工具
-    print(">>> 正在调用大模型...")
-    response = agent.invoke({
-        "messages": [
-            {"role": "user", "content": "杭州今天天气如何?"}
-        ]
-    })
+    while True:
+        user_input = input(">>> 请输入问题: ").strip()
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit", "q"):
+            print("已退出。")
+            break
 
-    # 遍历 Agent 返回的消息列表
-    # - HumanMessage：用户输入
-    # - AIMessage：模型回复
-    # - ToolMessage：工具调用结果
-    for msg in response["messages"]:
-        if hasattr(msg, "content"):
-            # 忽略特殊字符，避免 Windows GBK 终端编码报错
+        print("正在处理...\n")
+        response = agent.invoke({
+            "messages": [
+                {"role": "user", "content": user_input}
+            ]
+        })
+
+        # 展示每一步过程：模型思考 → 工具调用 → 工具结果 → 最终回复
+        step = 0
+        for msg in response["messages"]:
+            if not hasattr(msg, "content") or not msg.content:
+                continue
+
             content = msg.content.encode("gbk", errors="ignore").decode("gbk")
-            print(f"\n[{msg.type}] {content}")
+
+            if msg.type == "human":
+                print(f"[步骤{step}] 用户输入")
+                print(f"  {content}\n")
+                step += 1
+            elif msg.type == "ai":
+                print(f"[步骤{step}] 模型回复")
+                print(f"  {content}\n")
+                step += 1
+            elif msg.type == "tool":
+                print(f"[步骤{step}] 工具调用结果")
+                print(f"  {content}\n")
+                step += 1
+
+        print("─" * 50)
 
 
 # 仅当直接运行此文件时执行 main()，被 import 时不执行
