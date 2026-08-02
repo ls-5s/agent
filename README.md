@@ -33,6 +33,7 @@ HelloAgents-learn_version/
 ### 扩展
 
 - Lang/ — LangChain / LangGraph（待补充）
+- 参考项目：[HelloAgents](https://github.com/datawhalechina/hello-agents) — 配套学习资源
 
 ## 学习路线
 
