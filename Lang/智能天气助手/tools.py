@@ -7,9 +7,9 @@ Agent 会在需要时自动调用这些工具来获取信息或执行操作。
 
 扩展方式：添加新的 @tool 函数，然后在 agent.py 中注册即可。
 """
-import os
 import requests
-from langchain.tools import tool
+from langchain_core.tools import tool
+from config import TAVILY_API_KEY
 
 
 # ==================== 天气查询工具 ====================
@@ -85,13 +85,12 @@ def webSearch(query: str) -> str:
     Returns:
         搜索结果摘要
     """
-    api_key = os.getenv("TAVILY_API_KEY")
-    if not api_key:
+    if not TAVILY_API_KEY:
         return "错误：未配置 TAVILY_API_KEY，请检查 .env 文件"
 
     url = "https://api.tavily.com/search"
     payload = {
-        "api_key": api_key,
+        "api_key": TAVILY_API_KEY,
         "query": query,
         "search_depth": "basic",
         "max_results": 3,
