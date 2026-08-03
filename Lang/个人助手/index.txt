@@ -1,0 +1,270 @@
+# Python 装饰器详解
+
+## 什么是装饰器
+装饰器（Decorator）是 Python 中一种用于修改函数或类行为的语法糖。它本质上是一个接收函数作为参数并返回新函数的高阶函数。
+
+## 基本语法
+```python
+@decorator
+def func():
+    pass
+```
+等价于：`func = decorator(func)`
+
+## 常见内置装饰器
+- @staticmethod：定义静态方法，不需要 self 参数
+- @classmethod：定义类方法，第一个参数是 cls
+- @property：将方法转换为属性访问
+
+## 带参数的装饰器
+当装饰器本身需要参数时，需要再嵌套一层函数：
+```python
+def repeat(n):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for _ in range(n):
+                result = func(*args, **kwargs)
+            return result
+        return wrapper
+    return decorator
+
+@repeat(3)
+def hello():
+    print("Hello")
+```
+上面代码会打印 3 次 "Hello"。
+
+## 保留元信息
+使用 `functools.wraps` 保留原函数的名称、文档字符串等元信息：
+```python
+from functools import wraps
+
+def log(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"调用 {func.__name__}")
+        return func(*args, **kwargs)
+    return wrapper
+```
+
+## 类装饰器
+类也可以作为装饰器，需要实现 __call__ 方法：
+```python
+class CountCalls:
+    def __init__(self, func):
+        self.func = func
+        self.count = 0
+    def __call__(self, *args, **kwargs):
+        self.count += 1
+        print(f"调用次数: {self.count}")
+        return self.func(*args, **kwargs)
+```
+
+# FastAPI 入门指南
+
+## 什么是 FastAPI
+FastAPI 是一个现代、快速（高性能）的 Python Web 框架，用于构建 API。基于 Starlette 和 Pydantic，支持自动生成 OpenAPI 文档。
+
+## 安装
+```bash
+pip install fastapi uvicorn
+```
+
+## 第一个应用
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"message": "Hello World"}
+```
+
+启动方式：`uvicorn main:app --reload`
+
+## 路径参数
+```python
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    return {"user_id": user_id}
+```
+FastAPI 会自动校验类型，传入非 int 会返回 422 错误。
+
+## 查询参数
+```python
+@app.get("/search")
+def search(q: str = "", page: int = 1, limit: int = 10):
+    return {"query": q, "page": page, "limit": limit}
+```
+
+## 请求体
+```python
+from pydantic import BaseModel
+
+class Item(BaseModel):
+    name: str
+    price: float
+    description: str = ""
+
+@app.post("/items")
+def create_item(item: Item):
+    return {"item": item, "total": item.price * 1.1}
+```
+
+## 中间件与 CORS
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+# LangChain RAG 实现
+
+## RAG 概念
+RAG（Retrieval-Augmented Generation）检索增强生成，在 LLM 回答前先从文档库中检索相关内容，将检索结果作为上下文注入 Prompt，从而减少幻觉、提高准确性。
+
+## 核心流程
+1. 文档加载：读取 PDF、TXT、MD 等文件
+2. 文本分片：将长文档切分成适合向量化的短文本块
+3. 向量化：使用 Embedding 模型将文本转为向量
+4. 存储：向量存入 Chroma/Qdrant 等向量数据库
+5. 检索：用户问题向量化后相似度搜索 top-k 片段
+6. 生成：拼接检索结果 + 问题 → LLM 生成答案
+
+## 关键参数
+- chunk_size：每个文本块的大小，推荐 500-1000
+- chunk_overlap：相邻块之间的重叠大小，推荐 50-200
+- top_k：检索返回的最相似片段数，推荐 3-5
+
+## Chroma 使用
+```python
+from langchain_chroma import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+vector_store = Chroma(
+    persist_directory="./chroma_db",
+    embedding_function=embeddings,
+)
+# 添加文档
+vector_store.add_documents(chunks)
+# 检索
+docs = vector_store.similarity_search("问题", k=4)
+```
+
+## ReAct Agent
+ReAct = Reasoning + Acting，让 LLM 在思考链中交替进行推理和工具调用：
+1. Thought：分析当前状态，决定下一步
+2. Action：执行选定的工具
+3. Observation：观察工具返回结果
+4. 重复以上步骤直到得出最终答案
+
+# 机器学习基础
+
+## 监督学习
+使用带标签的数据训练模型，目标是学习输入到输出的映射关系。常见算法：
+- 线性回归：预测连续值
+- 逻辑回归：二分类问题
+- 决策树：可解释的树形分类/回归模型
+- 随机森林：多棵决策树集成，降低过拟合
+- XGBoost：梯度提升树，Kaggle 竞赛常胜将军
+- SVM：支持向量机，适合高维数据
+
+## 无监督学习
+使用无标签数据，发现数据内部结构。常见算法：
+- K-Means：聚类算法
+- DBSCAN：基于密度的聚类
+- PCA：主成分分析，降维
+- 自编码器：神经网络降维
+
+## 评估指标
+- 分类：准确率、精确率、召回率、F1-Score、AUC-ROC
+- 回归：MSE、RMSE、MAE、R²
+
+## 过拟合与欠拟合
+- 过拟合：模型在训练集表现好但泛化差，解决方案：正则化、Dropout、增加数据、早停
+- 欠拟合：模型太简单无法捕捉数据规律，解决方案：增加特征、增加模型复杂度
+
+## 特征工程
+- 缺失值处理：均值/中位数填充、删除
+- 特征缩放：标准化（StandardScaler）、归一化（MinMaxScaler）
+- 特征编码：独热编码、标签编码
+- 特征选择：方差过滤、相关性分析、L1 正则化
+
+# Git 协作工作流
+
+## 常用命令
+```bash
+# 克隆仓库
+git clone <url>
+
+# 创建并切换分支
+git checkout -b feature/xxx
+
+# 查看状态
+git status
+
+# 暂存更改
+git add .
+git add -p  # 交互式暂存
+
+# 提交
+git commit -m "feat: 添加用户登录功能"
+
+# 推送到远程
+git push origin feature/xxx
+
+# 拉取最新代码
+git pull --rebase origin main
+
+# 查看日志
+git log --oneline --graph --all
+```
+
+## 分支策略
+1. main/master：稳定版本，只通过 PR 合并
+2. develop：开发分支
+3. feature/xxx：功能分支，从 develop 切出
+4. hotfix/xxx：紧急修复分支，从 main 切出
+
+## Commit 规范
+- feat: 新功能
+- fix: 修复 bug
+- refactor: 重构
+- docs: 文档更新
+- test: 测试相关
+- chore: 构建/工具变更
+
+## 合并方式
+- merge：创建合并提交，保留完整历史
+- squash merge：将多个提交合并为一个，保持 main 干净
+- rebase + merge：变基后快进合并，线性历史
+
+## 冲突解决
+```bash
+# 发生冲突时
+git status  # 查看冲突文件
+# 手动编辑冲突文件
+git add .
+git rebase --continue  # 或 git merge --continue
+```
+
+## .gitignore 示例
+```gitignore
+__pycache__/
+*.pyc
+.env
+venv/
+.idea/
+.vscode/
+dist/
+*.egg-info/
+node_modules/
+vector_db/
+```

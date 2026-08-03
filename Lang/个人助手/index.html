@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>个人知识库智能助手</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4eb;
+    --muted: #8b8fa3;
+    --accent: #6c8cff;
+    --accent-hover: #8aa3ff;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
+
+  header {
+    text-align: center;
+    padding: 32px 0 24px;
+  }
+  header h1 { font-size: 28px; font-weight: 700; }
+  header p { color: var(--muted); margin-top: 6px; font-size: 14px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .dot.upload { background: var(--accent); }
+  .dot.rag { background: var(--green); }
+  .dot.agent { background: var(--amber); }
+  .dot.status { background: var(--muted); }
+
+  /* ----- upload zone ----- */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(108,140,255,.06);
+  }
+  .upload-zone input { display: none; }
+  .upload-zone .icon { font-size: 36px; margin-bottom: 8px; }
+  .upload-zone .hint { color: var(--muted); font-size: 13px; }
+  .file-list { margin-top: 12px; }
+  .file-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(108,140,255,.12);
+    color: var(--accent);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
+    margin: 3px;
+  }
+  .file-tag button {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; font-size: 14px; padding: 0 2px;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: none;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .2s, opacity .2s;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-outline:hover:not(:disabled) { background: rgba(255,255,255,.04); }
+  .btn-danger { background: transparent; border: 1px solid var(--red); color: var(--red); }
+  .btn-danger:hover:not(:disabled) { background: rgba(248,113,113,.1); }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+  /* ----- question area ----- */
+  .qa-row { display: flex; gap: 10px; }
+  .qa-input {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .qa-input:focus { border-color: var(--accent); }
+  .qa-input::placeholder { color: var(--muted); }
+
+  /* ----- answer box ----- */
+  .answer-box {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: var(--bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    min-height: 60px;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: none;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .answer-box.visible { display: block; }
+  .answer-box.loading { color: var(--muted); font-style: italic; }
+  .answer-box .sources {
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted);
+  }
+  .answer-box .sources span { color: var(--accent); }
+
+  /* cursor blink */
+  .cursor-blink::after {
+    content: '▍';
+    animation: blink 1s step-end infinite;
+    color: var(--accent);
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* ----- status bar ----- */
+  .status-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .status-item { font-size: 13px; color: var(--muted); }
+  .status-item strong { color: var(--text); }
+
+  /* ----- toast ----- */
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    padding: 10px 24px; border-radius: 8px;
+    font-size: 14px; z-index: 100;
+    animation: fadeIn .3s ease;
+  }
+  .toast.success { background: #166534; color: #bbf7d0; }
+  .toast.error { background: #7f1d1d; color: #fecaca; }
+  @keyframes fadeIn { from { opacity: 0; top: 10px; } to { opacity: 1; top: 20px; } }
+
+  .spinner {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>个人知识库智能助手</h1>
+    <p>基于 FastAPI + LangChain + RAG + ReAct Agent</p>
+  </header>
+
+  <!-- 文件上传 -->
+  <div class="card">
+    <div class="card-title"><span class="dot upload"></span> 文档上传</div>
+    <div class="upload-zone" id="uploadZone">
+      <div class="icon">+</div>
+      <div>拖拽文件到此处，或点击选择</div>
+      <div class="hint">支持 PDF / TXT / MD，上传后自动构建向量知识库</div>
+      <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md">
+    </div>
+    <div class="file-list" id="fileList"></div>
+    <div style="margin-top:12px">
+      <button class="btn btn-outline btn-sm" id="uploadBtn" disabled>上传到知识库</button>
+    </div>
+  </div>
+
+  <!-- RAG 问答 -->
+  <div class="card">
+    <div class="card-title"><span class="dot rag"></span> RAG 问答（仅本地知识库）</div>
+    <div class="qa-row">
+      <input class="qa-input" id="ragInput" placeholder="基于已上传文档提问...">
+      <button class="btn btn-primary" id="ragBtn">提问</button>
+    </div>
+    <div class="answer-box" id="ragAnswer"></div>
+  </div>
+
+  <!-- Agent 问答 -->
+  <div class="card">
+    <div class="card-title"><span class="dot agent"></span> Agent 智能问答（知识库 + 联网搜索）</div>
+    <div class="qa-row">
+      <input class="qa-input" id="agentInput" placeholder="提问，Agent 会自动判断走知识库还是联网搜索...">
+      <button class="btn btn-primary" id="agentBtn">提问</button>
+    </div>
+    <div class="answer-box" id="agentAnswer"></div>
+  </div>
+
+  <!-- 状态 -->
+  <div class="card">
+    <div class="card-title"><span class="dot status"></span> 知识库状态</div>
+    <div class="status-bar">
+      <span class="status-item">文档数量: <strong id="docCount">-</strong></span>
+      <span class="status-item">存储路径: <strong id="uploadDir">-</strong></span>
+      <button class="btn btn-danger btn-sm" id="clearBtn">清空知识库</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = 'http://localhost:8001';
+
+// ===== 文件上传 =====
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('fileList');
+const uploadBtn = document.getElementById('uploadBtn');
+let selectedFiles = [];
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => addFiles(fileInput.files));
+
+function addFiles(files) {
+  for (const f of files) {
+    if (selectedFiles.find(sf => sf.name === f.name)) continue;
+    selectedFiles.push(f);
+  }
+  renderFileList();
+}
+
+function renderFileList() {
+  fileList.innerHTML = selectedFiles.map((f, i) =>
+    `<span class="file-tag">${f.name} (${formatSize(f.size)})<button onclick="removeFile(${i})">&times;</button></span>`
+  ).join('');
+  uploadBtn.disabled = selectedFiles.length === 0;
+}
+
+function removeFile(i) { selectedFiles.splice(i, 1); renderFileList(); }
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + 'B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+'KB';
+  return (bytes/(1024*1024)).toFixed(1)+'MB';
+}
+
+uploadBtn.addEventListener('click', async () => {
+  if (selectedFiles.length === 0) return;
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = '上传中...';
+  const fd = new FormData();
+  selectedFiles.forEach(f => fd.append('files', f));
+  try {
+    const res = await fetch(API + '/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (res.ok) {
+      toast('上传成功: ' + data.details.map(d => d.filename + '(' + d.chunks + '块)').join(', '), 'success');
+      selectedFiles = [];
+      renderFileList();
+      refreshStatus();
+    } else {
+      toast(data.detail || '上传失败', 'error');
+    }
+  } catch (e) {
+    toast('网络错误: ' + e.message, 'error');
+  }
+  uploadBtn.disabled = false;
+  uploadBtn.textContent = '上传到知识库';
+});
+
+// ===== 问答 =====
+document.getElementById('ragBtn').addEventListener('click', () => askStream('/ask/rag/stream', 'ragInput', 'ragAnswer'));
+document.getElementById('agentBtn').addEventListener('click', () => askStream('/ask/agent/stream', 'agentInput', 'agentAnswer'));
+
+['ragInput', 'agentInput'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const btnId = id === 'ragInput' ? 'ragBtn' : 'agentBtn';
+      document.getElementById(btnId).click();
+    }
+  });
+});
+
+async function askStream(url, inputId, answerId) {
+  const input = document.getElementById(inputId);
+  const answerBox = document.getElementById(answerId);
+  const btn = input.nextElementSibling;
+  const question = input.value.trim();
+  if (!question) return;
+
+  answerBox.className = 'answer-box visible';
+  answerBox.innerHTML = '<span class="spinner"></span> 思考中...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(API + url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let sources = [];
+
+    answerBox.innerHTML = '<span class="cursor-blink"></span>';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'sources') {
+            sources = event.data;
+          } else if (event.type === 'text') {
+            fullText += event.data;
+            const escaped = fullText
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            answerBox.innerHTML = escaped + '<span class="cursor-blink"></span>';
+          } else if (event.type === 'done') {
+            // nothing
+          }
+        } catch (e) {}
+      }
+    }
+
+    // remove cursor, show final
+    const escaped = fullText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    let finalHtml = escaped || '(无回答)';
+    if (sources.length > 0) {
+      finalHtml += '<div class="sources">参考来源: <span>' + sources.join('</span>, <span>') + '</span></div>';
+    }
+    answerBox.innerHTML = finalHtml;
+  } catch (e) {
+    answerBox.textContent = '请求失败: ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+// ===== 状态 =====
+async function refreshStatus() {
+  try {
+    const res = await fetch(API + '/status');
+    const data = await res.json();
+    document.getElementById('docCount').textContent = data.total_documents;
+    document.getElementById('uploadDir').textContent = data.upload_dir;
+  } catch (e) {}
+}
+
+document.getElementById('clearBtn').addEventListener('click', async () => {
+  if (!confirm('确定要清空知识库吗？此操作不可恢复。')) return;
+  try {
+    const res = await fetch(API + '/knowledge-base', { method: 'DELETE' });
+    const data = await res.json();
+    toast(data.message, 'success');
+    refreshStatus();
+  } catch (e) {
+    toast('操作失败: ' + e.message, 'error');
+  }
+});
+
+// ===== Toast =====
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+refreshStatus();
+</script>
+</body>
+</html>
